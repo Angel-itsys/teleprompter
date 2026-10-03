@@ -161,6 +161,7 @@ async function desdeEnlace() {
 addEventListener('hashchange', () => location.reload());
 
 function iniciar(GUION) {
+document.title = GUION.titulo; // en la página publicada, cada pestaña muestra su guion
 const $ = (id) => document.getElementById(id);
 const text = $('text'), scroller = $('scroller');
 const store = (() => { try { const s = window.localStorage; s.setItem('_t', '1'); return s; } catch { return null; } })();
