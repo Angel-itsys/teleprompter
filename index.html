@@ -292,7 +292,7 @@ function follow(heard) {
 function startRec() {
   if (!SR) { status('Este navegador no reconoce voz · usa Auto', 'err'); return; }
   rec = new SR();
-  rec.lang = 'es-MX'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  rec.lang = GUION.lang || 'es-MX'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
   recErr = false;
   rec.onstart = () => status('Escuchando', 'listen');
   rec.onresult = (e) => {
