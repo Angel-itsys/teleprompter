@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d0c0a">
+<title>Teleprompter</title>
+<style>
+  :root {
+    --bg: #0d0c0a; --ink: #f4efe6; --dim: #6d675d; --said: #8b8478; --accent: #ff8a4c; --cue: #8fb8ff;
+    --bar: #161512; --line: rgba(255,255,255,.12);
+    --fs: 56px; --mark: 34vh;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--ink); height: 100%; overflow: hidden;
+    font-family: Roboto, "Noto Sans", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+
+  /* Texto */
+  #scroller { position: fixed; inset: 0; overflow: hidden; touch-action: none; }
+  #text { position: absolute; left: 0; right: 0; top: 0; padding: var(--mark) 7vw 70vh; will-change: transform; }
+  body.mirror #text { transform-origin: center; }
+  .toma { margin-bottom: 1.4em; }
+  .toma h2 { font-size: calc(var(--fs) * .42); font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: .7em; display: flex; gap: .8em; align-items: center; }
+  .toma h2::after { content: ""; flex: 1; height: 2px; background: var(--line); }
+  .p { font-size: var(--fs); line-height: 1.38; font-weight: 500; margin-bottom: .55em; }
+  .w { transition: color .25s; }
+  .w.said { color: var(--said); }
+  .w.now { color: var(--accent); }
+  .pause { display: inline-block; width: .9em; text-align: center; color: var(--dim); }
+  .cue { font-size: calc(var(--fs) * .4); color: var(--cue); font-style: italic; margin: -.2em 0 .9em; }
+  .fin { font-size: calc(var(--fs) * .5); color: var(--dim); text-align: center; padding-top: 1em; }
+
+  /* Línea de lectura */
+  #marker { position: fixed; left: 0; right: 0; top: calc(var(--mark) - 6px); height: calc(var(--fs) * 1.38 + 12px);
+    pointer-events: none; border-top: 2px solid rgba(255,138,76,.35); border-bottom: 2px solid rgba(255,138,76,.12);
+    background: linear-gradient(rgba(255,138,76,.07), transparent); }
+  #marker::before { content: "▶"; position: absolute; left: 1.6vw; top: calc(var(--fs) * .3); font-size: calc(var(--fs) * .5); color: var(--accent); }
+  #fadeTop { position: fixed; left: 0; right: 0; top: 0; height: calc(var(--mark) - 10px); pointer-events: none;
+    background: linear-gradient(var(--bg) 0, rgba(13,12,10,.55) 60%, rgba(13,12,10,.15)); }
+
+  /* Barra de controles */
+  #bar::before { content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 60px; pointer-events: none;
+    background: linear-gradient(transparent, var(--bar)); }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: var(--bar); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    justify-content: center; transition: transform .3s, opacity .3s; z-index: 5; }
+  body.playing.hidebar #bar { transform: translateY(110%); opacity: 0; }
+  .g { display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.05); border-radius: 14px; padding: 4px; }
+  button { font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1; color: var(--ink); background: transparent; border: 0;
+    min-width: 56px; height: 56px; padding: 0 14px; border-radius: 11px; }
+  button:active { background: rgba(255,255,255,.12); }
+  button.on { background: var(--accent); color: #1a0f08; }
+  #play { min-width: 96px; font-size: 26px; background: var(--accent); color: #1a0f08; }
+  .val { min-width: 92px; text-align: center; font-size: 18px; color: #cfc8bb; }
+  .val small { display: block; font-size: 12px; color: var(--dim); margin-top: 3px; letter-spacing: .04em; }
+
+  /* Estado (voz) */
+  #status { position: fixed; top: 12px; right: 14px; z-index: 6; font-size: 15px; padding: 8px 12px; border-radius: 999px;
+    background: rgba(255,255,255,.07); color: #cfc8bb; display: flex; gap: 8px; align-items: center; }
+  #status i { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  #status.listen i { background: #4ade80; box-shadow: 0 0 0 4px rgba(74,222,128,.2); }
+  #status.err i { background: #f87171; }
+  #heard { position: fixed; top: 56px; right: 14px; max-width: 48vw; font-size: 14px; color: var(--dim); text-align: right; z-index: 6; }
+
+  /* Cuenta regresiva y menú de tomas */
+  #count { position: fixed; inset: 0; display: none; place-items: center; font-size: 30vh; font-weight: 700; color: var(--accent);
+    background: rgba(13,12,10,.6); z-index: 8; }
+  #menu { position: fixed; inset: 0; background: rgba(13,12,10,.96); z-index: 9; display: none; overflow: auto; padding: 6vh 8vw; }
+  #menu h3 { font-size: 22px; color: var(--dim); margin-bottom: 18px; font-weight: 600; }
+  #menu button { display: block; width: 100%; text-align: left; height: auto; padding: 18px 20px; font-size: 24px; font-weight: 500;
+    border-bottom: 1px solid var(--line); border-radius: 0; }
+  #menu button span { color: var(--accent); margin-right: 14px; }
+  #help { position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%); width: min(720px, 86vw); background: #1a1815;
+    border: 1px solid var(--line); border-radius: 20px; padding: 28px 30px; font-size: 19px; line-height: 1.5; color: #d8d1c4; z-index: 9; display: none; }
+  #help b { color: var(--ink); }
+  #help p + p { margin-top: 10px; }
+</style>
+</head>
+<body class="hidebar">
+<div id="scroller"><div id="text"></div></div>
+<div id="fadeTop"></div>
+<div id="marker"></div>
+<div id="status"><i></i><span id="statusTxt">Listo</span></div>
+<div id="heard"></div>
+<div id="count"></div>
+
+<div id="bar">
+  <button id="play" aria-label="Empezar">▶</button>
+  <div class="g">
+    <button id="mVoz">Voz</button>
+    <button id="mAuto">Auto</button>
+  </div>
+  <div class="g" id="gSpeed">
+    <button id="sDown">−</button><div class="val"><span id="sVal">150</span><small>PAL/MIN</small></div><button id="sUp">+</button>
+  </div>
+  <div class="g">
+    <button id="fDown">A−</button><button id="fUp">A+</button>
+  </div>
+  <div class="g">
+    <button id="bTomas">Tomas</button><button id="bRe" aria-label="Repetir toma">↺ Toma</button>
+  </div>
+  <div class="g">
+    <button id="bMirror" aria-label="Espejo">⇋</button><button id="bFull" aria-label="Pantalla completa">⛶</button><button id="bHelp">?</button>
+  </div>
+</div>
+
+<div id="menu"><h3>Ir a la toma</h3><div id="menuList"></div></div>
+<div id="help">
+  <p><b>Toca la pantalla</b> para pausar o seguir. <b>Arrastra</b> para mover el texto a mano.</p>
+  <p><b>Voz:</b> el texto avanza mientras lees en voz alta; si te detienes o repites, te espera. Necesita permiso de micrófono e internet. Pon la tablet en silencio para que sus sonidos no se graben.</p>
+  <p><b>Auto:</b> avanza solo a las palabras por minuto que elijas (130–160 es un ritmo natural).</p>
+  <p><b>↺ Toma</b> vuelve al inicio de la toma actual. <b>⇋</b> invierte el texto para usarlo con un vidrio de teleprompter.</p>
+  <p style="color:#8b8478">Toca fuera de este cuadro para cerrarlo.</p>
+</div>
+
+<script>
+// El guion llega incrustado (archivo sin internet) o dentro del enlace: #g=<json comprimido en base64url>.
+// Lo que va después de "#" nunca sale de la tablet, así que la página publicada no ve el guion.
+const EMBED = /*__GUION__*/null/*__FIN__*/;
+async function desdeEnlace() {
+  const m = location.hash.match(/[#&]g=([A-Za-z0-9_-]+)/);
+  if (!m) return null;
+  const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+  const bin = Uint8Array.from(atob(b64 + '==='.slice((b64.length + 3) % 4)), (c) => c.charCodeAt(0));
+  const txt = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+  return JSON.parse(txt);
+}
+(async () => {
+  let g = EMBED;
+  try { g = g || await desdeEnlace(); } catch (e) { console.error(e); }
+  if (!g) {
+    document.body.innerHTML = '<div style="padding:12vh 8vw;font:500 26px/1.5 system-ui;color:#cfc8bb">Teleprompter<br><span style="color:#6d675d;font-size:20px">Abre el enlace del guion que te mandaron; esta página sola no trae texto.</span></div>';
+    return;
+  }
+  iniciar(g);
+})();
+addEventListener('hashchange', () => location.reload());
+
+function iniciar(GUION) {
+const $ = (id) => document.getElementById(id);
+const text = $('text'), scroller = $('scroller');
+const store = (() => { try { const s = window.localStorage; s.setItem('_t', '1'); return s; } catch { return null; } })();
+const KEY = 'prompter:' + GUION.titulo;
+const prefs = Object.assign({ fs: 56, wpm: 150, mode: 'voz', mirror: false }, JSON.parse(store?.getItem(KEY) || '{}'));
+const save = () => store?.setItem(KEY, JSON.stringify(prefs));
+
+// ---------- Construcción del texto ----------
+const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9ñ]+/g, '');
+const words = []; // { n: normalizado, el, toma }
+const tomaStart = [];
+GUION.tomas.forEach((t, ti) => {
+  const sec = document.createElement('section'); sec.className = 'toma';
+  const h = document.createElement('h2'); h.textContent = t.titulo; sec.append(h);
+  tomaStart.push({ word: words.length, el: sec });
+  for (const parte of t.partes) {
+    if (parte.tipo === 'indicacion') {
+      const c = document.createElement('div'); c.className = 'cue'; c.textContent = parte.texto; sec.append(c); continue;
+    }
+    const p = document.createElement('div'); p.className = 'p';
+    parte.texto.split(/(\s+)/).forEach((tok) => {
+      if (!tok) return;
+      if (/^\s+$/.test(tok)) { p.append(' '); return; }
+      if (tok === '/') { const s = document.createElement('span'); s.className = 'pause'; s.textContent = '·'; p.append(s); return; }
+      const s = document.createElement('span'); s.className = 'w'; s.textContent = tok; p.append(s);
+      const n = norm(tok);
+      if (n) words.push({ n, el: s, toma: ti });
+    });
+    sec.append(p);
+  }
+  text.append(sec);
+});
+const fin = document.createElement('div'); fin.className = 'fin'; fin.textContent = '— fin —'; text.append(fin);
+
+// ---------- Desplazamiento ----------
+let y = 0, target = 0, playing = false, mode = prefs.mode, pos = 0;
+const markY = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mark')) / 100 * innerHeight;
+const maxY = () => Math.max(0, text.scrollHeight - innerHeight * 0.6);
+function wordY(i) { const w = words[Math.min(i, words.length - 1)]; return w ? w.el.offsetTop - markY() : 0; } // offsetParent de cada palabra es #text
+function apply() {
+  y = Math.max(0, Math.min(maxY(), y));
+  text.style.transform = `translateY(${-y}px)` + (prefs.mirror ? ' scaleX(-1)' : '');
+}
+function pxPerWord() { return words.length ? (wordY(words.length - 1) - wordY(0)) / words.length : 1; }
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!dragging) {
+    if (playing && mode === 'auto') { y += prefs.wpm / 60 * pxPerWord() * dt; target = y; syncPosFromY(); }
+    else if (mode === 'voz') { y += (target - y) * Math.min(1, dt * 5); }
+  }
+  apply();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+function syncPosFromY() { // en modo auto, la palabra en la línea de lectura
+  let i = pos;
+  while (i < words.length - 1 && wordY(i + 1) <= y + 2) i++;
+  while (i > 0 && wordY(i) > y + 2) i--;
+  if (i !== pos) setPos(i, false);
+}
+function setPos(i, scroll = true) {
+  pos = Math.max(0, Math.min(words.length, i));
+  words.forEach((w, k) => { w.el.classList.toggle('said', k < pos); w.el.classList.toggle('now', k === pos && mode === 'voz' && playing); });
+  if (scroll) target = wordY(pos);
+  if (store) store.setItem(KEY + ':pos', String(pos));
+}
+
+// Arrastre manual
+let dragging = false, dragY0 = 0, y0 = 0, moved = false;
+scroller.addEventListener('pointerdown', (e) => { dragging = true; moved = false; dragY0 = e.clientY; y0 = y; });
+addEventListener('pointermove', (e) => { if (!dragging) return; const d = e.clientY - dragY0; if (Math.abs(d) > 8) moved = true; if (moved) { y = y0 - d; target = y; } });
+addEventListener('pointerup', () => {
+  if (!dragging) return; dragging = false;
+  if (moved) { syncPosFromY(); target = y; return; }
+  togglePlay(); // toque simple
+});
+
+// ---------- Voz ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, wantListen = false, recErr = false;
+function status(txt, cls = '') { $('statusTxt').textContent = txt; $('status').className = cls; }
+function lev1(a, b) { // ¿distancia de edición ≤ 1?
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, e = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++e > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return e + (a.length - i) + (b.length - j) <= 1;
+}
+const same = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a))) || (a.length >= 5 && lev1(a, b));
+
+// Busca dónde termina lo que se acaba de oír dentro del guion, cerca de la posición actual.
+function follow(heard) {
+  const h = heard.map(norm).filter(Boolean).slice(-8);
+  if (!h.length) return;
+  let best = -1, bestScore = 0;
+  const lo = Math.max(0, pos - 40), hi = Math.min(words.length - 1, pos + 30);
+  for (let j = lo; j <= hi; j++) {
+    let a = h.length - 1, b = j, score = 0, skips = 0;
+    while (a >= 0 && b >= 0 && b > j - 14) {
+      if (same(h[a], words[b].n)) { score++; a--; b--; }
+      else if (skips < 3) { skips++; if (a > 0 && same(h[a - 1], words[b].n)) a--; else b--; }
+      else break;
+    }
+    if (!score) continue;
+    const dist = j + 1 - pos;
+    const need = dist < 0 ? 4 : dist > 12 ? 3 : (words[j].n.length >= 5 ? 1 : 2); // ir hacia atrás o saltar lejos pide más certeza
+    if (score < need) continue;
+    const s = score - Math.abs(dist) * 0.04;
+    if (s > bestScore) { bestScore = s; best = j; }
+  }
+  if (best >= 0) setPos(best + 1);
+}
+
+function startRec() {
+  if (!SR) { status('Este navegador no reconoce voz · usa Auto', 'err'); return; }
+  rec = new SR();
+  rec.lang = 'es-MX'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  recErr = false;
+  rec.onstart = () => status('Escuchando', 'listen');
+  rec.onresult = (e) => {
+    let txt = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) txt += ' ' + e.results[i][0].transcript;
+    $('heard').textContent = txt.trim().split(/\s+/).slice(-8).join(' ');
+    follow(txt.trim().split(/\s+/));
+  };
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      wantListen = false; recErr = true; pause();
+      status(/^https?:$/.test(location.protocol) ? 'Sin permiso de micrófono · revisa los permisos de Chrome' : 'La voz solo funciona desde el enlace · aquí usa Auto', 'err');
+    }
+    else if (e.error === 'network') status('Sin internet para la voz · usa Auto', 'err');
+  };
+  rec.onend = () => { if (wantListen && playing && mode === 'voz') { try { rec.start(); } catch {} } else if (!recErr) status('En pausa'); };
+  try { rec.start(); } catch (err) { status('No se pudo iniciar la voz', 'err'); }
+}
+function stopRec() { wantListen = false; try { rec?.stop(); } catch {} }
+
+// ---------- Mantener la pantalla encendida ----------
+let lock = null, keepVideo = null;
+async function keepAwake(on) {
+  if (!on) { lock?.release?.(); lock = null; keepVideo?.pause(); return; }
+  try { lock = await navigator.wakeLock.request('screen'); return; } catch {}
+  if (!keepVideo) { // respaldo: un video mudo en bucle evita que la tablet apague la pantalla
+    const c = document.createElement('canvas'); c.width = c.height = 2;
+    const g = c.getContext('2d'); let k = 0; setInterval(() => { g.fillStyle = k++ % 2 ? '#000' : '#010101'; g.fillRect(0, 0, 2, 2); }, 500);
+    keepVideo = document.createElement('video'); keepVideo.muted = true; keepVideo.playsInline = true; keepVideo.loop = true;
+    keepVideo.style.cssText = 'position:fixed;width:2px;height:2px;opacity:.01;left:0;top:0;pointer-events:none';
+    keepVideo.srcObject = c.captureStream(2); document.body.append(keepVideo);
+  }
+  keepVideo.play().catch(() => {});
+}
+
+// ---------- Reproducción ----------
+let counting = false;
+async function togglePlay() {
+  if (counting) return;
+  if ($('menu').style.display === 'block' || $('help').style.display === 'block') { closeOverlays(); return; }
+  if (playing) { pause(); return; }
+  if (mode === 'auto') await countdown();
+  playing = true; document.body.classList.add('playing'); $('play').textContent = '❚❚';
+  keepAwake(true);
+  if (mode === 'voz') { wantListen = true; startRec(); setPos(pos); } else status('Auto · ' + prefs.wpm + ' pal/min');
+}
+function pause() {
+  playing = false; document.body.classList.remove('playing'); $('play').textContent = '▶';
+  stopRec(); keepAwake(false); if (!recErr) status('En pausa'); setPos(pos, false);
+}
+function countdown() {
+  counting = true; const c = $('count'); c.style.display = 'grid';
+  return new Promise((r) => { let n = 3; c.textContent = n; const iv = setInterval(() => { if (--n) c.textContent = n; else { clearInterval(iv); c.style.display = 'none'; counting = false; r(); } }, 700); });
+}
+
+// ---------- Controles ----------
+const stop = (fn) => (e) => { e.stopPropagation(); fn(e); };
+$('bar').addEventListener('pointerdown', (e) => e.stopPropagation());
+$('bar').addEventListener('pointerup', (e) => e.stopPropagation());
+$('play').onclick = stop(togglePlay);
+function setMode(m) {
+  if (playing) pause();
+  mode = prefs.mode = m; save();
+  $('mVoz').classList.toggle('on', m === 'voz'); $('mAuto').classList.toggle('on', m === 'auto');
+  $('gSpeed').style.opacity = m === 'auto' ? 1 : .35;
+  const vozOk = SR && isSecureContext && /^https?:$/.test(location.protocol); // en archivo (file:, content:) Chrome no da el micrófono
+  status(m === 'voz' ? (vozOk ? 'Voz · toca ▶ y empieza a leer' : 'La voz solo funciona desde el enlace · usa Auto') : 'Auto · ' + prefs.wpm + ' pal/min', vozOk || m === 'auto' ? '' : 'err');
+  target = y;
+}
+$('mVoz').onclick = stop(() => setMode('voz'));
+$('mAuto').onclick = stop(() => setMode('auto'));
+const setWpm = (d) => { prefs.wpm = Math.max(80, Math.min(240, prefs.wpm + d)); $('sVal').textContent = prefs.wpm; save(); };
+$('sDown').onclick = stop(() => setWpm(-10)); $('sUp').onclick = stop(() => setWpm(10));
+function setFs(v) {
+  prefs.fs = Math.max(32, Math.min(110, v)); save();
+  document.documentElement.style.setProperty('--fs', prefs.fs + 'px');
+  requestAnimationFrame(() => { target = y = wordY(pos); });
+}
+$('fDown').onclick = stop(() => setFs(prefs.fs - 6)); $('fUp').onclick = stop(() => setFs(prefs.fs + 6));
+$('bMirror').onclick = stop(() => { prefs.mirror = !prefs.mirror; save(); $('bMirror').classList.toggle('on', prefs.mirror); });
+$('bFull').onclick = stop(() => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}); });
+$('bHelp').onclick = stop(() => { $('help').style.display = 'block'; });
+const tomaActual = () => { let t = 0; tomaStart.forEach((s, i) => { if (s.word <= pos) t = i; }); return t; };
+function irA(i) { if (playing) pause(); setPos(tomaStart[i].word); y = target; closeOverlays(); }
+$('bRe').onclick = stop(() => irA(tomaActual()));
+$('bTomas').onclick = stop(() => {
+  const l = $('menuList'); l.innerHTML = '';
+  GUION.tomas.forEach((t, i) => { const b = document.createElement('button'); b.innerHTML = `<span>${i + 1}</span>`; b.append(t.titulo); b.onclick = stop(() => irA(i)); l.append(b); });
+  $('menu').style.display = 'block';
+});
+function closeOverlays() { $('menu').style.display = 'none'; $('help').style.display = 'none'; }
+$('menu').addEventListener('pointerup', (e) => { if (e.target === $('menu')) closeOverlays(); e.stopPropagation(); });
+$('help').addEventListener('pointerup', stop(closeOverlays));
+$('menu').addEventListener('pointerdown', (e) => e.stopPropagation());
+$('help').addEventListener('pointerdown', (e) => e.stopPropagation());
+
+// La barra se esconde mientras corre y vuelve al tocar la parte de abajo.
+addEventListener('pointerdown', (e) => { if (e.clientY > innerHeight * 0.82) document.body.classList.remove('hidebar'); });
+let hideT; addEventListener('pointerup', () => { clearTimeout(hideT); hideT = setTimeout(() => document.body.classList.add('hidebar'), 3500); });
+document.body.classList.remove('hidebar');
+
+// Teclado / control Bluetooth: espacio o Enter pausa, flechas mueven.
+addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter' || e.key === 'MediaPlayPause') { e.preventDefault(); togglePlay(); }
+  else if (e.key === 'ArrowDown' || e.key === 'PageDown') { setPos(pos + 6); if (mode === 'auto') y = target; }
+  else if (e.key === 'ArrowUp' || e.key === 'PageUp') { setPos(pos - 6); if (mode === 'auto') y = target; }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden && playing) pause(); });
+
+// Inicio
+$('sVal').textContent = prefs.wpm;
+$('bMirror').classList.toggle('on', prefs.mirror);
+document.documentElement.style.setProperty('--fs', prefs.fs + 'px');
+setMode(mode);
+requestAnimationFrame(() => { setPos(+(store?.getItem(KEY + ':pos') || 0)); y = target; });
+window.__prompter = { follow, words, get pos() { return pos; }, SR: !!SR, secure: isSecureContext, store: !!store };
+}
+</script>
+</body>
+</html>
