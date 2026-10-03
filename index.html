@@ -48,7 +48,7 @@
   body.playing.hidebar #bar { transform: translateY(110%); opacity: 0; }
   .g { display: flex; gap: 6px; align-items: center; background: rgba(255,255,255,.05); border-radius: 14px; padding: 4px; }
   button { font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1; color: var(--ink); background: transparent; border: 0;
-    min-width: 56px; height: 56px; padding: 0 14px; border-radius: 11px; }
+    min-width: 52px; height: 56px; padding: 0 12px; border-radius: 11px; }
   button:active { background: rgba(255,255,255,.12); }
   button.on { background: var(--accent); color: #1a0f08; }
   #play { min-width: 96px; font-size: 26px; background: var(--accent); color: #1a0f08; }
@@ -74,6 +74,22 @@
   #help { position: fixed; left: 50%; top: 45%; transform: translate(-50%,-50%); width: min(720px, 86vw); background: #1a1815;
     border: 1px solid var(--line); border-radius: 20px; padding: 28px 30px; font-size: 19px; line-height: 1.5; color: #d8d1c4; z-index: 9; display: none; }
   #help b { color: var(--ink); }
+  /* Edición */
+  body.editing .p { outline: 2px dashed rgba(143,184,255,.35); outline-offset: 6px; border-radius: 6px; }
+  .p.edited::before { content: "✎"; position: absolute; margin-left: -1.1em; font-size: .5em; margin-top: .45em; color: var(--cue); }
+  #editbar { position: fixed; top: 0; left: 0; right: 0; z-index: 7; display: none; align-items: center; gap: 12px; padding: 12px 16px;
+    background: #12233f; color: #d6e4ff; font-size: 18px; }
+  body.editing #editbar { display: flex; }
+  #editbar span { flex: 1; }
+  #editbar button { background: rgba(255,255,255,.1); height: 48px; }
+  #editor { position: fixed; inset: 0; z-index: 10; display: none; background: rgba(13,12,10,.85); padding: 6vh 6vw; }
+  #editor .box { background: #1a1815; border: 1px solid var(--line); border-radius: 20px; padding: 22px; max-width: 980px; margin: 0 auto; }
+  #editor .orig { color: var(--dim); font-size: 17px; margin-bottom: 12px; }
+  #editor textarea { width: 100%; min-height: 26vh; font-family: inherit; font-size: 30px; font-weight: 500; line-height: 1.4; color: var(--ink); background: #0d0c0a;
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px; resize: vertical; }
+  #editor .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+  #editor .row button { background: rgba(255,255,255,.08); }
+  #editor .row .ok { background: var(--accent); color: #1a0f08; }
   #help p + p { margin-top: 10px; }
 </style>
 </head>
@@ -98,18 +114,25 @@
     <button id="fDown">A−</button><button id="fUp">A+</button>
   </div>
   <div class="g">
-    <button id="bTomas">Tomas</button><button id="bRe" aria-label="Repetir toma">↺ Toma</button>
+    <button id="bTomas">Tomas</button><button id="bRe" aria-label="Repetir toma">↺ Toma</button><button id="bEdit">✎ Editar</button>
   </div>
   <div class="g">
     <button id="bMirror" aria-label="Espejo">⇋</button><button id="bFull" aria-label="Pantalla completa">⛶</button><button id="bHelp">?</button>
   </div>
 </div>
 
+<div id="editbar"><span>Editando · toca una frase para cambiarla</span><button id="bSend">Enviar cambios</button><button id="bDone">Listo</button></div>
+<div id="editor"><div class="box">
+  <div class="orig" id="edOrig"></div>
+  <textarea id="edText" spellcheck="true" lang="es"></textarea>
+  <div class="row"><button id="edReset">Volver al original</button><button id="edCancel">Cancelar</button><button id="edSave" class="ok">Guardar</button></div>
+</div></div>
 <div id="menu"><h3>Ir a la toma</h3><div id="menuList"></div></div>
 <div id="help">
   <p><b>Toca la pantalla</b> para pausar o seguir. <b>Arrastra</b> para mover el texto a mano.</p>
   <p><b>Voz:</b> el texto avanza mientras lees en voz alta; si te detienes o repites, te espera. Necesita permiso de micrófono e internet. Pon la tablet en silencio para que sus sonidos no se graben.</p>
   <p><b>Auto:</b> avanza solo a las palabras por minuto que elijas (130–160 es un ritmo natural).</p>
+  <p><b>✎ Editar</b>: toca una frase, cámbiala y guarda. El cambio se queda en esta tablet; con <b>Enviar cambios</b> se los mandas a Claude para pasarlos al guion original.</p>
   <p><b>↺ Toma</b> vuelve al inicio de la toma actual. <b>⇋</b> invierte el texto para usarlo con un vidrio de teleprompter.</p>
   <p style="color:#8b8478">Toca fuera de este cuadro para cerrarlo.</p>
 </div>
@@ -146,34 +169,41 @@ const prefs = Object.assign({ fs: 56, wpm: 150, mode: 'voz', mirror: false }, JS
 const save = () => store?.setItem(KEY, JSON.stringify(prefs));
 
 // ---------- Construcción del texto ----------
-const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9ñ]+/g, '');
-const words = []; // { n: normalizado, el, toma }
-const tomaStart = [];
-GUION.tomas.forEach((t, ti) => {
-  const sec = document.createElement('section'); sec.className = 'toma';
-  const h = document.createElement('h2'); h.textContent = t.titulo; sec.append(h);
-  tomaStart.push({ word: words.length, el: sec });
-  for (const parte of t.partes) {
-    if (parte.tipo === 'indicacion') {
-      const c = document.createElement('div'); c.className = 'cue'; c.textContent = parte.texto; sec.append(c); continue;
-    }
-    const p = document.createElement('div'); p.className = 'p';
-    parte.texto.split(/(\s+)/).forEach((tok) => {
-      if (!tok) return;
-      if (/^\s+$/.test(tok)) { p.append(' '); return; }
-      if (tok === '/') { const s = document.createElement('span'); s.className = 'pause'; s.textContent = '·'; p.append(s); return; }
-      const s = document.createElement('span'); s.className = 'w'; s.textContent = tok; p.append(s);
-      const n = norm(tok);
-      if (n) words.push({ n, el: s, toma: ti });
+const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ]+/g, '');
+const EKEY = KEY + ':ediciones:' + (location.hash.slice(0, 40) || 'archivo');
+const ediciones = JSON.parse(store?.getItem(EKEY) || '{}'); // { "t1p2": "texto nuevo" }
+let words = [], tomaStart = []; // words: { n: normalizado, el, toma }
+function construir() {
+  words = []; tomaStart = []; text.innerHTML = '';
+  GUION.tomas.forEach((t, ti) => {
+    const sec = document.createElement('section'); sec.className = 'toma';
+    const h = document.createElement('h2'); h.textContent = t.titulo; sec.append(h);
+    tomaStart.push({ word: words.length, el: sec });
+    t.partes.forEach((parte, pi) => {
+      if (parte.tipo === 'indicacion') {
+        const c = document.createElement('div'); c.className = 'cue'; c.textContent = parte.texto; sec.append(c); return;
+      }
+      const id = `t${ti}p${pi}`;
+      const p = document.createElement('div'); p.className = 'p' + (id in ediciones ? ' edited' : ''); p.dataset.id = id;
+      (ediciones[id] ?? parte.texto).split(/(\s+)/).forEach((tok) => {
+        if (!tok) return;
+        if (/^\s+$/.test(tok)) { p.append(' '); return; }
+        if (tok === '/') { const s = document.createElement('span'); s.className = 'pause'; s.textContent = '·'; p.append(s); return; }
+        const s = document.createElement('span'); s.className = 'w'; s.textContent = tok; p.append(s);
+        const n = norm(tok);
+        if (n) words.push({ n, el: s, toma: ti });
+      });
+      sec.append(p);
     });
-    sec.append(p);
-  }
-  text.append(sec);
-});
-const fin = document.createElement('div'); fin.className = 'fin'; fin.textContent = '— fin —'; text.append(fin);
+    text.append(sec);
+  });
+  const fin = document.createElement('div'); fin.className = 'fin'; fin.textContent = '— fin —'; text.append(fin);
+}
+construir();
 
 // ---------- Desplazamiento ----------
 let y = 0, target = 0, playing = false, mode = prefs.mode, pos = 0;
+const LOOKAHEAD = 2;
 const markY = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mark')) / 100 * innerHeight;
 const maxY = () => Math.max(0, text.scrollHeight - innerHeight * 0.6);
 function wordY(i) { const w = words[Math.min(i, words.length - 1)]; return w ? w.el.offsetTop - markY() : 0; } // offsetParent de cada palabra es #text
@@ -188,7 +218,7 @@ function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (!dragging) {
     if (playing && mode === 'auto') { y += prefs.wpm / 60 * pxPerWord() * dt; target = y; syncPosFromY(); }
-    else if (mode === 'voz') { y += (target - y) * Math.min(1, dt * 5); }
+    else if (mode === 'voz') { y += (target - y) * Math.min(1, dt * 9); }
   }
   apply();
   requestAnimationFrame(tick);
@@ -204,7 +234,7 @@ function syncPosFromY() { // en modo auto, la palabra en la línea de lectura
 function setPos(i, scroll = true) {
   pos = Math.max(0, Math.min(words.length, i));
   words.forEach((w, k) => { w.el.classList.toggle('said', k < pos); w.el.classList.toggle('now', k === pos && mode === 'voz' && playing); });
-  if (scroll) target = wordY(pos);
+  if (scroll) target = wordY(mode === 'voz' && playing ? pos + LOOKAHEAD : pos); // en voz, sube el renglón un poco antes de que lo alcances
   if (store) store.setItem(KEY + ':pos', String(pos));
 }
 
@@ -212,9 +242,10 @@ function setPos(i, scroll = true) {
 let dragging = false, dragY0 = 0, y0 = 0, moved = false;
 scroller.addEventListener('pointerdown', (e) => { dragging = true; moved = false; dragY0 = e.clientY; y0 = y; });
 addEventListener('pointermove', (e) => { if (!dragging) return; const d = e.clientY - dragY0; if (Math.abs(d) > 8) moved = true; if (moved) { y = y0 - d; target = y; } });
-addEventListener('pointerup', () => {
+addEventListener('pointerup', (e) => {
   if (!dragging) return; dragging = false;
   if (moved) { syncPosFromY(); target = y; return; }
+  if (document.body.classList.contains('editing')) { const p = document.elementFromPoint(e.clientX, e.clientY)?.closest('.p'); if (p) abrirEditor(p.dataset.id); return; }
   togglePlay(); // toque simple
 });
 
@@ -249,7 +280,8 @@ function follow(heard) {
     }
     if (!score) continue;
     const dist = j + 1 - pos;
-    const need = dist < 0 ? 4 : dist > 12 ? 3 : (words[j].n.length >= 5 ? 1 : 2); // ir hacia atrás o saltar lejos pide más certeza
+    // Una sola palabra solo mueve si es larga y está justo delante; saltar lejos o volver atrás pide más palabras.
+    const need = dist < 0 ? 4 : dist > 12 ? 3 : (dist <= 2 && words[j].n.length >= 5) ? 1 : 2;
     if (score < need) continue;
     const s = score - Math.abs(dist) * 0.04;
     if (s > bestScore) { bestScore = s; best = j; }
@@ -370,13 +402,50 @@ addEventListener('keydown', (e) => {
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && playing) pause(); });
 
+// ---------- Edición en la tablet ----------
+const partePorId = (id) => { const [, t, p] = id.match(/t(\d+)p(\d+)/); return { toma: +t, parte: GUION.tomas[+t].partes[+p] }; };
+let editando = null;
+function abrirEditor(id) {
+  editando = id; const { parte } = partePorId(id);
+  $('edOrig').textContent = id in ediciones ? 'Original: ' + parte.texto : 'Usa " / " para marcar una pausa.';
+  $('edText').value = ediciones[id] ?? parte.texto;
+  $('edReset').style.display = id in ediciones ? '' : 'none';
+  $('editor').style.display = 'block'; $('edText').focus();
+}
+function guardarEdicion(texto) {
+  const { parte, toma } = partePorId(editando);
+  const offset = pos - tomaStart[toma].word;
+  const limpio = texto.replace(/\s+/g, ' ').trim();
+  if (texto === null || !limpio || limpio === parte.texto) delete ediciones[editando]; else ediciones[editando] = limpio;
+  store?.setItem(EKEY, JSON.stringify(ediciones));
+  $('editor').style.display = 'none'; editando = null;
+  construir(); setPos(tomaStart[toma].word + Math.max(0, offset)); y = target;
+  $('bSend').style.display = Object.keys(ediciones).length ? '' : 'none';
+}
+$('edSave').onclick = () => guardarEdicion($('edText').value);
+$('edReset').onclick = () => guardarEdicion(null);
+$('edCancel').onclick = () => { $('editor').style.display = 'none'; editando = null; };
+['pointerdown', 'pointerup'].forEach((ev) => { $('editor').addEventListener(ev, (e) => e.stopPropagation()); $('editbar').addEventListener(ev, (e) => e.stopPropagation()); });
+$('bEdit').onclick = stop(() => { if (playing) pause(); document.body.classList.add('editing'); $('bSend').style.display = Object.keys(ediciones).length ? '' : 'none'; });
+$('bDone').onclick = () => document.body.classList.remove('editing');
+// Los cambios salen de la tablet como texto (compartir → KDE Connect, WhatsApp…) para pasarlos al .md original.
+$('bSend').onclick = async () => {
+  const lineas = Object.entries(ediciones).map(([id, nuevo]) => {
+    const { toma, parte } = partePorId(id);
+    return `• Toma "${GUION.tomas[toma].titulo}"${parte.l ? ` (línea ${parte.l} del .md)` : ''}\n  antes: ${parte.texto}\n  ahora: ${nuevo}`;
+  });
+  const txt = `Cambios al guion "${GUION.titulo}" hechos en la tablet:\n\n${lineas.join('\n\n')}`;
+  try { if (navigator.share) { await navigator.share({ title: 'Cambios al guion', text: txt }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(txt); status('Cambios copiados'); } catch { prompt('Copia los cambios:', txt); }
+};
+
 // Inicio
 $('sVal').textContent = prefs.wpm;
 $('bMirror').classList.toggle('on', prefs.mirror);
 document.documentElement.style.setProperty('--fs', prefs.fs + 'px');
 setMode(mode);
 requestAnimationFrame(() => { setPos(+(store?.getItem(KEY + ':pos') || 0)); y = target; });
-window.__prompter = { follow, words, get pos() { return pos; }, SR: !!SR, secure: isSecureContext, store: !!store };
+window.__prompter = { follow, get words() { return words; }, get pos() { return pos; }, SR: !!SR, secure: isSecureContext, store: !!store };
 }
 </script>
 </body>
