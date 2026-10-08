@@ -171,7 +171,9 @@ const save = () => store?.setItem(KEY, JSON.stringify(prefs));
 
 // ---------- Construcción del texto ----------
 const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ]+/g, '');
-const EKEY = KEY + ':ediciones:' + (location.hash.slice(0, 40) || 'archivo');
+// Las ediciones se guardan por versión exacta del guion: si el guion cambia, las de la versión anterior no se aplican.
+const huella = (txt) => { let h = 5381; for (let i = 0; i < txt.length; i++) h = ((h << 5) + h + txt.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const EKEY = KEY + ':ediciones:' + huella(JSON.stringify(GUION));
 const ediciones = JSON.parse(store?.getItem(EKEY) || '{}'); // { "t1p2": "texto nuevo" }
 let words = [], tomaStart = []; // words: { n: normalizado, el, toma }
 function construir() {
